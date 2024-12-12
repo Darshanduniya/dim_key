@@ -1,0 +1,69 @@
+import psycopg2
+from monetdb.sql import connect
+import sys
+
+# PostgreSQL connection details
+postgres_conn_details = {
+    'host': 'your_postgres_host',
+    'database': 'your_postgres_db',
+    'user': 'your_postgres_user',
+    'password': 'your_postgres_password'
+}
+
+# MonetDB connection details
+monet_conn_details = {
+    'hostname': 'your_monetdb_host',
+    'username': 'your_monetdb_user',
+    'password': 'your_monetdb_password',
+    'database': 'your_monetdb_db'
+}
+
+def fetch_models_from_monet(industry):
+    """Fetch models from MonetDB for a given industry."""
+    query = f"SELECT models FROM param_table WHERE industry='{industry}';"
+    with connect(**monet_conn_details) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query)
+            return [row[0] for row in cursor.fetchall()]
+
+def fetch_data_from_postgres(model_name):
+    """Fetch data from PostgreSQL for a given model."""
+    query = f"SELECT col1, col2, col3 FROM postgres_table WHERE {model_name};"
+    with psycopg2.connect(**postgres_conn_details) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query)
+            return cursor.fetchall()
+
+def create_table_in_monet(industry, table_name, column_name, values):
+    """Create a table in MonetDB with distinct values."""
+    with connect(**monet_conn_details) as conn:
+        with conn.cursor() as cursor:
+            # Drop table if it exists
+            cursor.execute(f"DROP TABLE IF EXISTS {table_name};")
+            # Create new table
+            cursor.execute(f"CREATE TABLE {table_name} AS SELECT DISTINCT {column_name} FROM category WHERE {column_name} IN ({', '.join(map(str, values))});")
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python script.py <industry_name>")
+        sys.exit(1)
+
+    industry = sys.argv[1]  # Get industry name from command-line argument
+
+    # Step 1: Fetch models from MonetDB
+    models = fetch_models_from_monet(industry)
+
+    for model_name in models:
+        # Step 2: Fetch data from PostgreSQL
+        postgres_output = fetch_data_from_postgres(model_name)
+
+        for row in postgres_output:
+            table_name = f"{row[0]}_cl"  # Example: class_key_cl
+            column_name = row[0]  # Example: class_key
+            values = row  # Values to filter in MonetDB
+
+            # Step 3: Create table in MonetDB with the data fetched
+            create_table_in_monet(industry, table_name, column_name, values)
+
+if __name__ == "__main__":
+    main()
